@@ -19,6 +19,13 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 - **Industrial Schema**: Generates training-ready JSONL files with metadata for token counting and quality auditing.
 
 ---
+##  Quick Start
+
+### 1. Installation
+Ensure you have Python 3.9+ installed, then clone the repository and install dependencies:
+```bash
+pip install -r requirements.txt
+
 
 ## Project Structure
 
@@ -35,9 +42,4 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 ├── requirements.txt    # Project dependencies
 └── README.md           # Project entry point
 
-##  Quick Start
 
-### 1. Installation
-Ensure you have Python 3.9+ installed, then clone the repository and install dependencies:
-```bash
-pip install -r requirements.txt
