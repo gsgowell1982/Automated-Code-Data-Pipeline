@@ -35,7 +35,7 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 ├── requirements.txt    # Project dependencies
 └── README.md           # Project entry point
 
----text
+.
 
 ## Quick Start
 1. Installation
