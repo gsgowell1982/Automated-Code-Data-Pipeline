@@ -34,3 +34,13 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 ├── tests/              # Unit tests for data quality and parser accuracy
 ├── requirements.txt    # Project dependencies
 └── README.md           # Project entry point
+---
+
+## Quick Start
+1. Installation
+Bash
+pip install -r requirements.txt
+2. Run the Pipeline
+Generate training data by pointing the pipeline to your local codebase:
+Bash
+python src/main.py --src ./your_code --output ./data/training_data.jsonl
