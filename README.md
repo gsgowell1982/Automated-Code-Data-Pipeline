@@ -34,7 +34,8 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 ├── tests/              # Unit tests for data quality and parser accuracy
 ├── requirements.txt    # Project dependencies
 └── README.md           # Project entry point
----
+
+---text
 
 ## Quick Start
 1. Installation
