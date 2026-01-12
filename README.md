@@ -15,7 +15,7 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 - **AST-Based Logic Extraction**: Automatically parses Python Abstract Syntax Trees to identify route decorators, dependencies, and repository patterns.
 - **DBR Mapping Engine**: Bridges the gap between technical implementation and business constraints (e.g., DBR-05 Ownership, DBR-08 Repository Pattern).
 - **Dual-Scenario Generation**:
-  - **Scenario 1**: For every Q&A pair, the answer provides the exact source code block extracted via AST analysis.A step-by-step logical chain (Chain-of-Thought) that explains how the code implements specific DBRs.
+  - **Scenario 1**: For every Q&A pair, the answer provides the exact source code block extracted via AST analysis. A step-by-step logical chain (Chain-of-Thought) that explains how the code implements specific DBRs.
   - **Scenario 2**: Provides comprehensive design schemes based on the existing repository architecture and predefined DBRs. Delivers a detailed explanation and a logical inference trace (Trace) to justify the design choices and ensure     architectural consistency, without requiring raw code snippets in the final answer.
 - **Industrial Schema**: Generates training-ready JSONL files with metadata for token counting and quality auditing.
 
@@ -35,5 +35,17 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 ├── tests/              # Unit tests for data quality and parser accuracy
 ├── requirements.txt    # Project dependencies
 └── README.md           # Project entry point
+```
+## Quick Start
+### 1. Installation
+Ensure you have Python 3.9+ installed, then clone the repository and install dependencies:
+```bash
+pip install -r requirements.txt
+```
+### 2. Run the Pipeline
+Generate structured training data by pointing the pipeline to your target codebase:
+```bash
+python src/main.py --src ./your_codebase_path --output ./data/training_samples.jsonl
+```
 
 
