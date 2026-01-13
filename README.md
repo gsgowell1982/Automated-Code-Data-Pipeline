@@ -20,6 +20,9 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 - **Industrial Schema**: Generates training-ready JSONL files with metadata for token counting and quality auditing.
 
 ---
+### 📌 Note on Implementation Scope
+While the comprehensive design document defines **7 distinct Compliance Business Rules (DBRs)** to cover the full spectrum of security auditing, this functional prototype focuses on the implementation of **DBR-01 (Identity Access & Credential Integrity)** as the core proof-of-concept. 
+
 
 ## Project Structure
 
