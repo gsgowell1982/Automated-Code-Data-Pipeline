@@ -42,7 +42,7 @@ The current implementation focuses on a streamlined pipeline where complex parsi
 ├── requirements.txt       # Project dependencies
 └── README.md              # Project entry point
 ```
-## Prerequisites (环境准备)
+## Prerequisites 
 
 To ensure the script runs correctly and generates consistent datasets, please meet the following requirements:
 
