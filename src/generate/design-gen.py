@@ -144,7 +144,7 @@ def build_design_schema(raw_item: Dict, lang: str) -> Dict:
 # --- 6. 主程序 ---
 def main(n=2, lang="zh-cn"):
     ensure_dir(DATA_DIR)
-    logging.info(f"开始生成场景 2 设计方案 (V5 序号修复版), 目标: {n} 条...")
+    logging.info(f"开始生成场景 2 设计方案, 目标: {n} 条...")
     success_count = 0
 
     with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
@@ -165,4 +165,5 @@ def main(n=2, lang="zh-cn"):
 
 
 if __name__ == "__main__":
+
     main(n=2, lang="zh-cn")
