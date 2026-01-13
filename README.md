@@ -24,17 +24,23 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 ## Project Structure
 
 ```text
+The current implementation focuses on a streamlined pipeline where complex parsing and validation logic are integrated directly into the generation scripts for efficiency.
 .
-├── data/               # Generated synthetic datasets (JSONL) for SFT
-├── docs/               # Technical Design Documents (PDFs) and DBR definitions
+├── data/                  # Generated synthetic datasets (JSONL) for SFT
+├── docs/                  # Technical Design Documents (PDFs) and DBR definitions
 │   └── GuoShun_HSBC_SPS_AD_Assignment.pdf  <-- Full Solution Design
-├── src/                # Core logic of the automated pipeline
-│   ├── parser/         # AST analysis and code extraction tools
-│   ├── generator/      # LLM-based instruction and reasoning synthesis
-│   └── validator/      # Data consistency and DBR alignment checks
-├── tests/              # Unit tests for data quality and parser accuracy
-├── requirements.txt    # Project dependencies
-└── README.md           # Project entry point
+├── src/                   # Core logic of the automated pipeline
+│   ├── generate/          # Main execution engine
+│   │   ├── rules-based-gen.py    # Scenario 1: Code-driven logic extraction & reasoning
+│   │   └── design-gen.py         # Scenario 2: Rule-driven architectural design synthesis
+│   │
+│   # --- Reserved Architectural Modules (Integrated into 'generate' for this version) ---
+│   ├── parser/            # [Future/Reserved] Standalone AST analysis and code extraction tools
+│   ├── validator/         # [Future/Reserved] Independent data consistency and DBR alignment checks
+│   └── ...
+├── tests/                 # Unit tests for data quality and parser accuracy
+├── requirements.txt       # Project dependencies
+└── README.md              # Project entry point
 ```
 ## Prerequisites (环境准备)
 
