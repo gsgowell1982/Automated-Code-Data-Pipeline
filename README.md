@@ -41,7 +41,7 @@ The current implementation focuses on a streamlined pipeline where complex parsi
 │   ├── parser/            # [Future/Reserved] Standalone AST analysis and code extraction tools
 │   ├── validator/         # [Future/Reserved] Independent data consistency and DBR alignment checks
 │   └── ...
-├── tests/                 # Unit tests for data quality and parser accuracy
+├── tests/                 # [Optional/Roadmap] Evaluation suite for fine-tuned model performance
 ├── requirements.txt       # Project dependencies
 └── README.md              # Project entry point
 ```
