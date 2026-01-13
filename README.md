@@ -64,9 +64,19 @@ Ensure you have Python 3.9+ installed, then clone the repository and install dep
 pip install -r requirements.txt
 ```
 ### 2. Run the Pipeline
-Generate structured training data by pointing the pipeline to your target codebase:
+The generation engine is designed as a standalone execution pipeline. You can generate high-quality synthetic data for different scenarios by running the following scripts directly:
+
+1. Scenario 1: Code-Driven Logic Extraction
+Analyzes existing source code to generate compliance-based reasoning and "Gold Standard" code snippets.
 ```bash
-python src/main.py --src ./your_codebase_path --output ./data/training_samples.jsonl
+# Targets source files defined in the script (e.g., authentication.py, users.py)
+python src/generate/rules-based-gen.py
+```
+2. Scenario 2: Rule-Driven Architectural Design
+Generates comprehensive design schemes and logical inference traces based on predefined DBRs and repository architecture.
+```bash
+# Focuses on architectural consistency and design justification
+python src/generate/design-gen.py
 ```
 
 
