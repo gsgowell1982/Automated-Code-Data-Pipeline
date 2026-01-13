@@ -8,7 +8,7 @@ import re
 from typing import List, Dict, Any
 
 # ==========================================
-# 1. 基础配置 (已修复变量定义顺序)
+# 1. 基础配置
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "..", "data"))
@@ -221,4 +221,5 @@ def main(n=3, lang="zh-cn"):
 # ==========================================
 if __name__ == "__main__":
     # 可以通过修改参数切换语言，例如 main(n=3, lang="en")
+
     main(n=3, lang="zh-cn")
