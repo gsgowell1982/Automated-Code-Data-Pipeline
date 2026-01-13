@@ -36,6 +36,21 @@ The primary goal of this pipeline is to solve the "Knowledge Gap" in general LLM
 ├── requirements.txt    # Project dependencies
 └── README.md           # Project entry point
 ```
+## Prerequisites (环境准备)
+
+To ensure the script runs correctly and generates consistent datasets, please meet the following requirements:
+
+### 1. Python Environment
+* **Version**: `Python 3.10.19` (Mandatory for full compatibility with the type hints and script logic).
+* **Requirements**: See [Installation](#-installation) section for dependency setup.
+
+### 2. Ollama Configuration
+The generation engine interacts with local LLMs via the Ollama REST API.
+* **Service URL**: Ollama must be active at `http://localhost:11434`.
+* **Model**: Default model is `qwen2.5:7b`. You can pull it via:
+  ```bash
+  ollama pull qwen2.5:7b
+  
 ## Quick Start
 ### 1. Installation
 Ensure you have Python 3.9+ installed, then clone the repository and install dependencies:
