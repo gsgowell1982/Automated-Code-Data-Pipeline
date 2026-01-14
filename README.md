@@ -32,6 +32,8 @@ The current implementation focuses on a streamlined pipeline where complex parsi
 ├── data/                  # Generated synthetic datasets (JSONL) for SFT
 ├── docs/                  # Technical Design Documents (PDFs) and DBR definitions
 │   └── GuoShun_HSBC_SPS_AD_Assignment.pdf  <-- Full Solution Design
+├── repos/                 # External source repositories for code analysis
+│   └── fastapi-realworld-example-app/  <-- Target codebase for AST parsing & context extraction
 ├── src/                   # Core logic of the automated pipeline
 │   ├── generate/          # Main execution engine
 │   │   ├── rules-based-gen.py    # Scenario 1: Code-driven logic extraction & reasoning
