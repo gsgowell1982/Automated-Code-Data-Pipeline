@@ -66,6 +66,13 @@ The generation engine interacts with local LLMs via the Ollama REST API.
 ### 1. Installation
 Ensure you have Python 3.9+ installed, then clone the repository and install dependencies:
 ```bash
+# Clone the repository
+git clone [https://github.com/gsgowell1982/Automated-Code-Data-Pipeline.git](https://github.com/gsgowell1982/Automated-Code-Data-Pipeline.git)
+
+# Enter the project directory
+cd Automated-Code-Data-Pipeline
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 ### 2. Run the Pipeline
