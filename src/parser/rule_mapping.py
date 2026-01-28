@@ -14,17 +14,29 @@ Business Logic:
 3. Authentication security feedback (Login)
 4. Dynamic session state maintenance (Token Refresh)
 
+Output Schema Compatibility:
+This module generates metadata compatible with downstream Q&A generation schema:
+- sample_id: Auto-generated unique ID
+- instruction: Auto-generated question
+- context: {file_path, related_dbr, code_snippet}
+- auto_processing: {parser, dbr_logic, data_cleaning}
+- reasoning_trace: List of structured reasoning steps
+- answer: Gold standard answer
+- data_quality: {consistency_check, language, temperature}
+
 Author: Auto-generated
-Version: 1.0.0
+Version: 2.0.0
 """
 
 import json
 import os
+import hashlib
 import logging
+import uuid
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Tuple
 from enum import Enum
 
 # Configure logging
@@ -33,6 +45,11 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Version info
+RULE_MAPPING_VERSION = "2.0.0"
+PARSER_NAME = "FastAPI-AST-Analyzer"
+PARSER_VERSION = "1.0.0"
 
 
 class EvidenceType(str, Enum):
@@ -43,6 +60,13 @@ class EvidenceType(str, Enum):
     CALL = "call"
     IMPORT = "import"
     PATTERN = "pattern"
+
+
+class TriggerType(str, Enum):
+    """Types of DBR rule triggers."""
+    EXPLICIT = "explicit"  # Direct code pattern match
+    IMPLICIT = "implicit"  # Inferred from context
+    COMPOSITE = "composite"  # Multiple patterns combined
 
 
 @dataclass
@@ -56,6 +80,53 @@ class CodeLocation:
 
 
 @dataclass
+class CodeSnippet:
+    """Actual source code snippet with metadata."""
+    code: str
+    language: str = "python"
+    line_start: int = 0
+    line_end: int = 0
+    file_path: str = ""
+    source_hash: str = ""  # MD5 hash for consistency check
+    
+    def compute_hash(self) -> str:
+        """Compute MD5 hash of the code snippet."""
+        self.source_hash = hashlib.md5(self.code.encode('utf-8')).hexdigest()
+        return self.source_hash
+
+
+@dataclass
+class DBRLogic:
+    """DBR rule logic with weight and trigger information."""
+    rule_id: str
+    subcategory_id: str
+    trigger_type: TriggerType
+    weight: float = 1.0  # Importance weight (0.0 - 1.0)
+    trigger_conditions: List[str] = field(default_factory=list)
+    matched_patterns: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ReasoningStep:
+    """A single step in the reasoning trace."""
+    step_id: int
+    step_type: str  # "observation", "analysis", "inference", "conclusion"
+    description: str
+    description_cn: str
+    source_reference: Optional[str] = None  # Reference to code location
+    dbr_reference: Optional[str] = None  # Reference to DBR rule
+
+
+@dataclass
+class ReasoningTemplate:
+    """Template for generating reasoning traces."""
+    template_id: str
+    template_name: str
+    steps: List[ReasoningStep] = field(default_factory=list)
+    applicable_to: List[str] = field(default_factory=list)  # List of evidence_ids
+
+
+@dataclass
 class CodeEvidence:
     """Evidence of a rule implementation in code."""
     evidence_id: str
@@ -64,6 +135,10 @@ class CodeEvidence:
     description: str
     description_cn: str
     location: CodeLocation
+    # New fields for Q&A schema compatibility
+    code_snippet: Optional[CodeSnippet] = None
+    dbr_logic: Optional[DBRLogic] = None
+    reasoning_template: Optional[ReasoningTemplate] = None
     related_elements: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -77,6 +152,39 @@ class RuleSubCategory:
     description: str
     description_cn: str
     evidences: List[CodeEvidence] = field(default_factory=list)
+    # New fields for Q&A generation
+    question_templates: List[str] = field(default_factory=list)  # Templates for generating questions
+    question_templates_cn: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ParserInfo:
+    """Information about the static analysis parser used."""
+    name: str
+    version: str
+    analysis_timestamp: str
+    source_file: str
+    capabilities: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DataCleaningInfo:
+    """Information about data cleaning and desensitization."""
+    cleaned: bool = True
+    desensitized: bool = False
+    cleaning_rules: List[str] = field(default_factory=list)
+    excluded_patterns: List[str] = field(default_factory=list)
+
+
+@dataclass
+class QAGenerationConfig:
+    """Configuration for Q&A pair generation."""
+    default_language: str = "en"
+    supported_languages: List[str] = field(default_factory=lambda: ["en", "zh"])
+    default_temperature: float = 0.7
+    include_code_snippets: bool = True
+    include_reasoning_trace: bool = True
+    max_snippet_lines: int = 50
 
 
 @dataclass
@@ -96,6 +204,12 @@ class RuleMetadata:
     related_functions: List[str] = field(default_factory=list)
     dependencies: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
+    # New fields for Q&A schema compatibility
+    parser_info: Optional[ParserInfo] = None
+    data_cleaning: Optional[DataCleaningInfo] = None
+    qa_config: Optional[QAGenerationConfig] = None
+    reasoning_templates: List[ReasoningTemplate] = field(default_factory=list)
+    source_code_root: str = ""  # Root path for source code extraction
 
 
 class DBR01RuleMapper:
@@ -104,6 +218,8 @@ class DBR01RuleMapper:
     
     This class extracts code evidence from the AST analysis JSON and maps
     it to the structured DBR-01 rule metadata.
+    
+    Compatible with downstream Q&A generation schema.
     """
     
     RULE_ID = "DBR-01"
@@ -151,13 +267,52 @@ class DBR01RuleMapper:
         "UsersRepository",
         "UserWithToken",
     }
+    
+    # Question templates for Q&A generation
+    QUESTION_TEMPLATES = {
+        "DBR-01-01": [
+            "How does the system handle username/email uniqueness during registration?",
+            "What happens when a user tries to register with an existing email?",
+            "Explain the conditional update validation logic for user profile updates.",
+        ],
+        "DBR-01-01-CN": [
+            "系统如何在注册时处理用户名/邮箱的唯一性检查？",
+            "当用户使用已存在的邮箱注册时会发生什么？",
+            "解释用户资料更新时的条件验证逻辑。",
+        ],
+        "DBR-01-02": [
+            "How does the system ensure atomicity during user account creation?",
+            "Describe the password hashing mechanism in user registration.",
+        ],
+        "DBR-01-02-CN": [
+            "系统如何确保用户账户创建时的原子性？",
+            "描述用户注册时的密码哈希机制。",
+        ],
+        "DBR-01-03": [
+            "How does the login function prevent user enumeration attacks?",
+            "What error message is returned for failed login attempts and why?",
+        ],
+        "DBR-01-03-CN": [
+            "登录函数如何防止用户枚举攻击？",
+            "登录失败时返回什么错误信息？为什么？",
+        ],
+        "DBR-01-04": [
+            "When and how is the JWT token refreshed in the system?",
+            "Which API endpoints return a new JWT token to the client?",
+        ],
+        "DBR-01-04-CN": [
+            "系统何时以及如何刷新JWT令牌？",
+            "哪些API端点会向客户端返回新的JWT令牌？",
+        ],
+    }
 
-    def __init__(self, analysis_json_path: str):
+    def __init__(self, analysis_json_path: str, source_root: Optional[str] = None):
         """
         Initialize the rule mapper.
         
         Args:
             analysis_json_path: Path to the AST analysis JSON file
+            source_root: Root path for source code extraction (optional)
         """
         self.analysis_json_path = Path(analysis_json_path)
         self.analysis_data: Dict[str, Any] = {}
@@ -165,6 +320,8 @@ class DBR01RuleMapper:
         self.modules_by_name: Dict[str, Dict] = {}
         self.functions_by_name: Dict[str, Dict] = {}
         self.classes_by_name: Dict[str, Dict] = {}
+        self.source_root: Optional[Path] = Path(source_root) if source_root else None
+        self._source_cache: Dict[str, List[str]] = {}  # Cache for source file contents
         
     def load_analysis(self) -> bool:
         """Load and parse the analysis JSON file."""
@@ -177,6 +334,12 @@ class DBR01RuleMapper:
                 self.analysis_data = json.load(f)
             logger.info(f"Loaded analysis from: {self.analysis_json_path}")
             
+            # Set source root from analysis data if not provided
+            if self.source_root is None:
+                root_path = self.analysis_data.get("root_path", "")
+                if root_path:
+                    self.source_root = Path(root_path)
+            
             # Index modules for quick lookup
             self._index_modules()
             return True
@@ -184,6 +347,216 @@ class DBR01RuleMapper:
         except Exception as e:
             logger.error(f"Error loading analysis JSON: {e}")
             return False
+    
+    def _read_source_file(self, file_path: str) -> List[str]:
+        """Read source file and cache its contents."""
+        if file_path in self._source_cache:
+            return self._source_cache[file_path]
+        
+        if self.source_root is None:
+            return []
+        
+        full_path = self.source_root / file_path
+        if not full_path.exists():
+            logger.warning(f"Source file not found: {full_path}")
+            return []
+        
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            self._source_cache[file_path] = lines
+            return lines
+        except Exception as e:
+            logger.error(f"Error reading source file {full_path}: {e}")
+            return []
+    
+    def _extract_code_snippet(
+        self, 
+        file_path: str, 
+        line_start: int, 
+        line_end: int,
+        max_lines: int = 50
+    ) -> Optional[CodeSnippet]:
+        """Extract actual source code snippet from file."""
+        lines = self._read_source_file(file_path)
+        if not lines:
+            return None
+        
+        # Adjust line numbers (1-indexed to 0-indexed)
+        start_idx = max(0, line_start - 1)
+        end_idx = min(len(lines), line_end)
+        
+        # Limit snippet size
+        if end_idx - start_idx > max_lines:
+            end_idx = start_idx + max_lines
+        
+        code_lines = lines[start_idx:end_idx]
+        code = ''.join(code_lines)
+        
+        snippet = CodeSnippet(
+            code=code,
+            language="python",
+            line_start=line_start,
+            line_end=min(line_end, start_idx + max_lines + 1),
+            file_path=file_path,
+        )
+        snippet.compute_hash()
+        
+        return snippet
+    
+    def _create_dbr_logic(
+        self,
+        subcategory_id: str,
+        trigger_type: TriggerType,
+        weight: float,
+        trigger_conditions: List[str],
+        matched_patterns: List[str]
+    ) -> DBRLogic:
+        """Create DBR logic metadata for an evidence."""
+        return DBRLogic(
+            rule_id=self.RULE_ID,
+            subcategory_id=subcategory_id,
+            trigger_type=trigger_type,
+            weight=weight,
+            trigger_conditions=trigger_conditions,
+            matched_patterns=matched_patterns,
+        )
+    
+    def _create_reasoning_template(
+        self,
+        template_id: str,
+        template_name: str,
+        evidence_type: str,
+        key_elements: List[str],
+        applicable_to: List[str]
+    ) -> ReasoningTemplate:
+        """Create a reasoning template for an evidence type."""
+        steps = []
+        
+        # Generate standard reasoning steps based on evidence type
+        if evidence_type == "exception_handling":
+            steps = [
+                ReasoningStep(
+                    step_id=1,
+                    step_type="observation",
+                    description="Identify the exception handling structure in the function",
+                    description_cn="识别函数中的异常处理结构",
+                    source_reference="try-except block",
+                ),
+                ReasoningStep(
+                    step_id=2,
+                    step_type="analysis",
+                    description=f"Analyze the predefined error variable and its usage",
+                    description_cn="分析预定义的错误变量及其使用方式",
+                    source_reference=", ".join(key_elements[:2]) if key_elements else None,
+                ),
+                ReasoningStep(
+                    step_id=3,
+                    step_type="inference",
+                    description="Determine how the unified error response prevents information leakage",
+                    description_cn="判断统一的错误响应如何防止信息泄露",
+                    dbr_reference=f"{self.RULE_ID}-03",
+                ),
+                ReasoningStep(
+                    step_id=4,
+                    step_type="conclusion",
+                    description="Conclude the security benefit of vague error messages",
+                    description_cn="总结模糊错误信息的安全收益",
+                ),
+            ]
+        elif evidence_type == "pattern" and "uniqueness" in template_name.lower():
+            steps = [
+                ReasoningStep(
+                    step_id=1,
+                    step_type="observation",
+                    description="Identify the uniqueness check function calls",
+                    description_cn="识别唯一性检查的函数调用",
+                    source_reference="check_username_is_taken, check_email_is_taken",
+                ),
+                ReasoningStep(
+                    step_id=2,
+                    step_type="analysis",
+                    description="Analyze the order of validation and data persistence",
+                    description_cn="分析验证和数据持久化的顺序",
+                ),
+                ReasoningStep(
+                    step_id=3,
+                    step_type="inference",
+                    description="Determine how pre-check prevents duplicate entries",
+                    description_cn="判断预检查如何防止重复条目",
+                    dbr_reference=f"{self.RULE_ID}-01",
+                ),
+                ReasoningStep(
+                    step_id=4,
+                    step_type="conclusion",
+                    description="Conclude the data integrity guarantee mechanism",
+                    description_cn="总结数据完整性保障机制",
+                ),
+            ]
+        elif evidence_type == "call" and "token" in template_name.lower():
+            steps = [
+                ReasoningStep(
+                    step_id=1,
+                    step_type="observation",
+                    description="Identify the JWT token generation call",
+                    description_cn="识别JWT令牌生成调用",
+                    source_reference="jwt.create_access_token_for_user",
+                ),
+                ReasoningStep(
+                    step_id=2,
+                    step_type="analysis",
+                    description="Analyze when token refresh occurs in the flow",
+                    description_cn="分析令牌刷新在流程中何时发生",
+                ),
+                ReasoningStep(
+                    step_id=3,
+                    step_type="inference",
+                    description="Determine how token refresh maintains session consistency",
+                    description_cn="判断令牌刷新如何维持会话一致性",
+                    dbr_reference=f"{self.RULE_ID}-04",
+                ),
+                ReasoningStep(
+                    step_id=4,
+                    step_type="conclusion",
+                    description="Conclude the session state management strategy",
+                    description_cn="总结会话状态管理策略",
+                ),
+            ]
+        else:
+            # Generic reasoning steps
+            steps = [
+                ReasoningStep(
+                    step_id=1,
+                    step_type="observation",
+                    description="Identify the relevant code pattern",
+                    description_cn="识别相关的代码模式",
+                ),
+                ReasoningStep(
+                    step_id=2,
+                    step_type="analysis",
+                    description="Analyze the implementation details",
+                    description_cn="分析实现细节",
+                ),
+                ReasoningStep(
+                    step_id=3,
+                    step_type="inference",
+                    description="Determine the design intent and security implications",
+                    description_cn="判断设计意图和安全影响",
+                ),
+                ReasoningStep(
+                    step_id=4,
+                    step_type="conclusion",
+                    description="Conclude the business rule compliance",
+                    description_cn="总结业务规则的合规性",
+                ),
+            ]
+        
+        return ReasoningTemplate(
+            template_id=template_id,
+            template_name=template_name,
+            steps=steps,
+            applicable_to=applicable_to,
+        )
     
     def _index_modules(self) -> None:
         """Index modules, functions, and classes for quick lookup."""
@@ -257,6 +630,9 @@ class DBR01RuleMapper:
         
         local_vars = func_data.get("local_variables", [])
         calls = func_data.get("calls", [])
+        file_path = func_data.get("_file_path", "")
+        line_start = func_data.get("line_start", 0)
+        line_end = func_data.get("line_end", 0)
         
         # Verify key patterns
         has_wrong_login_error = "wrong_login_error" in local_vars
@@ -266,6 +642,35 @@ class DBR01RuleMapper:
         if not (has_wrong_login_error and has_check_password_call):
             logger.warning("Login function missing expected patterns")
             return None
+        
+        # Extract code snippet
+        code_snippet = self._extract_code_snippet(file_path, line_start, line_end)
+        
+        # Create DBR logic
+        dbr_logic = self._create_dbr_logic(
+            subcategory_id="DBR-01-03",
+            trigger_type=TriggerType.EXPLICIT,
+            weight=0.95,
+            trigger_conditions=[
+                "try-except block present",
+                "wrong_login_error variable defined",
+                "EntityDoesNotExist exception caught",
+            ],
+            matched_patterns=[
+                "wrong_login_error",
+                "existence_error",
+                "user.check_password",
+            ],
+        )
+        
+        # Create reasoning template
+        reasoning_template = self._create_reasoning_template(
+            template_id="RT-LOGIN-EXCEPTION",
+            template_name="Login Exception Handling Reasoning",
+            evidence_type="exception_handling",
+            key_elements=["wrong_login_error", "existence_error", "INCORRECT_LOGIN_INPUT"],
+            applicable_to=["DBR-01-LOGIN-EXCEPTION"],
+        )
         
         return CodeEvidence(
             evidence_id="DBR-01-LOGIN-EXCEPTION",
@@ -278,6 +683,9 @@ class DBR01RuleMapper:
                           "EntityDoesNotExist（命名为 existence_error），若捕获到该异常或 "
                           "user.check_password 返回为假，则统一抛出 wrong_login_error。",
             location=self._create_code_location(func_data),
+            code_snippet=code_snippet,
+            dbr_logic=dbr_logic,
+            reasoning_template=reasoning_template,
             related_elements=[
                 "wrong_login_error",
                 "existence_error",
@@ -312,6 +720,9 @@ class DBR01RuleMapper:
         
         calls = func_data.get("calls", [])
         parameters = func_data.get("parameters", [])
+        file_path = func_data.get("_file_path", "")
+        line_start = func_data.get("line_start", 0)
+        line_end = func_data.get("line_end", 0)
         
         # Verify key patterns
         has_user_create_param = any(p.get("name") == "user_create" for p in parameters)
@@ -324,6 +735,36 @@ class DBR01RuleMapper:
             logger.warning("Register function missing expected patterns")
             return None
         
+        # Extract code snippet
+        code_snippet = self._extract_code_snippet(file_path, line_start, line_end)
+        
+        # Create DBR logic
+        dbr_logic = self._create_dbr_logic(
+            subcategory_id="DBR-01-01",
+            trigger_type=TriggerType.EXPLICIT,
+            weight=0.9,
+            trigger_conditions=[
+                "user_create parameter present",
+                "check_username_is_taken called before create_user",
+                "check_email_is_taken called before create_user",
+            ],
+            matched_patterns=[
+                "user_create",
+                "check_username_is_taken",
+                "check_email_is_taken",
+                "users_repo.create_user",
+            ],
+        )
+        
+        # Create reasoning template
+        reasoning_template = self._create_reasoning_template(
+            template_id="RT-REGISTER-PRECHECK",
+            template_name="Registration Uniqueness Check Reasoning",
+            evidence_type="pattern",
+            key_elements=["user_create", "check_username_is_taken", "check_email_is_taken"],
+            applicable_to=["DBR-01-REGISTER-PRECHECK"],
+        )
+        
         return CodeEvidence(
             evidence_id="DBR-01-REGISTER-PRECHECK",
             evidence_type=EvidenceType.PATTERN,
@@ -335,6 +776,9 @@ class DBR01RuleMapper:
                           "通过 await 执行 check_username_is_taken 和 check_email_is_taken。"
                           "若其中任一服务判定标识符已被占用，则抛出对应的 HTTP_400_BAD_REQUEST。",
             location=self._create_code_location(func_data),
+            code_snippet=code_snippet,
+            dbr_logic=dbr_logic,
+            reasoning_template=reasoning_template,
             related_elements=[
                 "user_create",
                 "check_username_is_taken",
@@ -371,6 +815,9 @@ class DBR01RuleMapper:
         
         calls = func_data.get("calls", [])
         parameters = func_data.get("parameters", [])
+        file_path = func_data.get("_file_path", "")
+        line_start = func_data.get("line_start", 0)
+        line_end = func_data.get("line_end", 0)
         
         # Verify key patterns
         has_user_update_param = any(p.get("name") == "user_update" for p in parameters)
@@ -387,6 +834,37 @@ class DBR01RuleMapper:
             logger.warning("Update function missing expected parameters")
             return None
         
+        # Extract code snippet
+        code_snippet = self._extract_code_snippet(file_path, line_start, line_end)
+        
+        # Create DBR logic
+        dbr_logic = self._create_dbr_logic(
+            subcategory_id="DBR-01-01",
+            trigger_type=TriggerType.COMPOSITE,
+            weight=0.85,
+            trigger_conditions=[
+                "user_update parameter present",
+                "current_user parameter present",
+                "conditional comparison before check",
+                "complexity >= 5 indicating multiple conditions",
+            ],
+            matched_patterns=[
+                "user_update.username != current_user.username",
+                "user_update.email != current_user.email",
+                "check_username_is_taken",
+                "check_email_is_taken",
+            ],
+        )
+        
+        # Create reasoning template
+        reasoning_template = self._create_reasoning_template(
+            template_id="RT-UPDATE-CONDITIONAL",
+            template_name="Conditional Update Uniqueness Check Reasoning",
+            evidence_type="pattern",
+            key_elements=["user_update", "current_user", "conditional_check"],
+            applicable_to=["DBR-01-UPDATE-CONDITIONAL"],
+        )
+        
         return CodeEvidence(
             evidence_id="DBR-01-UPDATE-CONDITIONAL",
             evidence_type=EvidenceType.PATTERN,
@@ -398,6 +876,9 @@ class DBR01RuleMapper:
                           "仅当 user_update.username 或 user_update.email 与现有值不一致时，"
                           "才会触发 check_username_is_taken 或 check_email_is_taken 的查重逻辑。",
             location=self._create_code_location(func_data),
+            code_snippet=code_snippet,
+            dbr_logic=dbr_logic,
+            reasoning_template=reasoning_template,
             related_elements=[
                 "user_update",
                 "current_user",
@@ -436,6 +917,9 @@ class DBR01RuleMapper:
             
             calls = func_data.get("calls", [])
             local_vars = func_data.get("local_variables", [])
+            file_path = func_data.get("_file_path", "")
+            line_start = func_data.get("line_start", 0)
+            line_end = func_data.get("line_end", 0)
             
             # Check for token generation pattern
             has_create_token = "jwt.create_access_token_for_user" in calls
@@ -443,6 +927,35 @@ class DBR01RuleMapper:
             has_user_with_token = "UserWithToken" in calls
             
             if has_create_token and has_token_var:
+                # Extract code snippet
+                code_snippet = self._extract_code_snippet(file_path, line_start, line_end)
+                
+                # Create DBR logic
+                dbr_logic = self._create_dbr_logic(
+                    subcategory_id="DBR-01-04",
+                    trigger_type=TriggerType.EXPLICIT,
+                    weight=0.8,
+                    trigger_conditions=[
+                        "jwt.create_access_token_for_user called",
+                        "token variable assigned",
+                        "UserWithToken used in response",
+                    ],
+                    matched_patterns=[
+                        "jwt.create_access_token_for_user",
+                        "token",
+                        "UserWithToken",
+                    ],
+                )
+                
+                # Create reasoning template
+                reasoning_template = self._create_reasoning_template(
+                    template_id=f"RT-TOKEN-{func_name.upper()}",
+                    template_name=f"Token Refresh in {func_name} Reasoning",
+                    evidence_type="call",
+                    key_elements=["jwt.create_access_token_for_user", "token", "UserWithToken"],
+                    applicable_to=[f"DBR-01-TOKEN-{func_name.upper()}"],
+                )
+                
                 evidence = CodeEvidence(
                     evidence_id=f"DBR-01-TOKEN-{func_name.upper()}",
                     evidence_type=EvidenceType.CALL,
@@ -452,6 +965,9 @@ class DBR01RuleMapper:
                     description_cn=f"函数 {func_name} 通过调用 jwt.create_access_token_for_user "
                                   f"生成 token 变量，并封装在 UserWithToken 领域模型中返回。",
                     location=self._create_code_location(func_data),
+                    code_snippet=code_snippet,
+                    dbr_logic=dbr_logic,
+                    reasoning_template=reasoning_template,
                     related_elements=[
                         "jwt.create_access_token_for_user",
                         "token",
@@ -491,11 +1007,44 @@ class DBR01RuleMapper:
             return None
         
         calls = create_user_data.get("calls", [])
+        file_path = create_user_data.get("_file_path", "")
+        line_start = create_user_data.get("line_start", 0)
+        line_end = create_user_data.get("line_end", 0)
         
         # Check for transaction and password hashing
         has_transaction = "self.connection.transaction" in calls
         has_password_change = "user.change_password" in calls
         has_create_query = "queries.create_new_user" in calls
+        
+        # Extract code snippet
+        code_snippet = self._extract_code_snippet(file_path, line_start, line_end)
+        
+        # Create DBR logic
+        dbr_logic = self._create_dbr_logic(
+            subcategory_id="DBR-01-02",
+            trigger_type=TriggerType.EXPLICIT,
+            weight=0.9,
+            trigger_conditions=[
+                "transaction context manager used",
+                "change_password called for hashing",
+                "atomic database operation",
+            ],
+            matched_patterns=[
+                "self.connection.transaction",
+                "user.change_password",
+                "hashed_password",
+                "salt",
+            ],
+        )
+        
+        # Create reasoning template
+        reasoning_template = self._create_reasoning_template(
+            template_id="RT-REPO-ATOMICITY",
+            template_name="Repository Atomicity Reasoning",
+            evidence_type="pattern",
+            key_elements=["transaction", "change_password", "hashed_password"],
+            applicable_to=["DBR-01-REPO-ATOMICITY"],
+        )
         
         return CodeEvidence(
             evidence_id="DBR-01-REPO-ATOMICITY",
@@ -506,6 +1055,9 @@ class DBR01RuleMapper:
             description_cn="账户创建过程通过 UsersRepository 确保原子性，密码经哈希处理后持久化。"
                           "使用数据库事务保证操作的原子性。",
             location=self._create_code_location(create_user_data),
+            code_snippet=code_snippet,
+            dbr_logic=dbr_logic,
+            reasoning_template=reasoning_template,
             related_elements=[
                 "UsersRepository",
                 "create_user",
@@ -540,6 +1092,38 @@ class DBR01RuleMapper:
                 continue
             
             calls = func_data.get("calls", [])
+            file_path = func_data.get("_file_path", "")
+            line_start = func_data.get("line_start", 0)
+            line_end = func_data.get("line_end", 0)
+            
+            # Extract code snippet
+            code_snippet = self._extract_code_snippet(file_path, line_start, line_end)
+            
+            # Create DBR logic
+            dbr_logic = self._create_dbr_logic(
+                subcategory_id="DBR-01-01",
+                trigger_type=TriggerType.EXPLICIT,
+                weight=0.85,
+                trigger_conditions=[
+                    f"{service_name} function defined",
+                    "EntityDoesNotExist exception handling",
+                    "Repository query for existence check",
+                ],
+                matched_patterns=[
+                    service_name,
+                    "EntityDoesNotExist",
+                    "repo.get_user_by_" + ("username" if "username" in service_name else "email"),
+                ],
+            )
+            
+            # Create reasoning template
+            reasoning_template = self._create_reasoning_template(
+                template_id=f"RT-SERVICE-{service_name.upper().replace('_', '-')}",
+                template_name=f"Uniqueness Service {service_name} Reasoning",
+                evidence_type="function",
+                key_elements=[service_name, "EntityDoesNotExist", "UsersRepository"],
+                applicable_to=[f"DBR-01-SERVICE-{service_name.upper().replace('_', '-')}"],
+            )
             
             evidence = CodeEvidence(
                 evidence_id=f"DBR-01-SERVICE-{service_name.upper().replace('_', '-')}",
@@ -549,6 +1133,9 @@ class DBR01RuleMapper:
                            f"EntityDoesNotExist to determine availability.",
                 description_cn=f"函数 {service_name} 查询仓库并捕获 EntityDoesNotExist 异常来判断唯一性。",
                 location=self._create_code_location(func_data),
+                code_snippet=code_snippet,
+                dbr_logic=dbr_logic,
+                reasoning_template=reasoning_template,
                 related_elements=[
                     service_name,
                     "EntityDoesNotExist",
@@ -580,12 +1167,22 @@ class DBR01RuleMapper:
         # Create subcategories
         subcategories = []
         
+        # Collect all reasoning templates for rule-level aggregation
+        all_reasoning_templates = []
+        
         # Subcategory 1: Uniqueness Interception
         uniqueness_evidences = []
         if register_precheck:
             uniqueness_evidences.append(register_precheck)
+            if register_precheck.reasoning_template:
+                all_reasoning_templates.append(register_precheck.reasoning_template)
         if conditional_update:
             uniqueness_evidences.append(conditional_update)
+            if conditional_update.reasoning_template:
+                all_reasoning_templates.append(conditional_update.reasoning_template)
+        for evidence in uniqueness_services:
+            if evidence.reasoning_template:
+                all_reasoning_templates.append(evidence.reasoning_template)
         uniqueness_evidences.extend(uniqueness_services)
         
         if uniqueness_evidences:
@@ -599,12 +1196,16 @@ class DBR01RuleMapper:
                 description_cn="系统在用户注册及资料更新时，强制执行唯一性检查。"
                               "若标识符已被占用，系统通过 400 Bad Request 显式拦截。",
                 evidences=uniqueness_evidences,
+                question_templates=self.QUESTION_TEMPLATES.get("DBR-01-01", []),
+                question_templates_cn=self.QUESTION_TEMPLATES.get("DBR-01-01-CN", []),
             ))
         
         # Subcategory 2: Account Security & Atomicity
         security_evidences = []
         if repo_atomicity:
             security_evidences.append(repo_atomicity)
+            if repo_atomicity.reasoning_template:
+                all_reasoning_templates.append(repo_atomicity.reasoning_template)
         
         if security_evidences:
             subcategories.append(RuleSubCategory(
@@ -615,12 +1216,16 @@ class DBR01RuleMapper:
                            "Password is hashed before persistence.",
                 description_cn="账户创建过程通过 UsersRepository 确保原子性，密码经哈希处理后持久化。",
                 evidences=security_evidences,
+                question_templates=self.QUESTION_TEMPLATES.get("DBR-01-02", []),
+                question_templates_cn=self.QUESTION_TEMPLATES.get("DBR-01-02-CN", []),
             ))
         
         # Subcategory 3: Authentication Security Feedback
         auth_feedback_evidences = []
         if login_exception:
             auth_feedback_evidences.append(login_exception)
+            if login_exception.reasoning_template:
+                all_reasoning_templates.append(login_exception.reasoning_template)
         
         if auth_feedback_evidences:
             subcategories.append(RuleSubCategory(
@@ -631,10 +1236,15 @@ class DBR01RuleMapper:
                            "INCORRECT_LOGIN_INPUT to prevent user enumeration attacks.",
                 description_cn="登录时统一捕获异常，返回模糊错误信息 INCORRECT_LOGIN_INPUT，防止用户枚举。",
                 evidences=auth_feedback_evidences,
+                question_templates=self.QUESTION_TEMPLATES.get("DBR-01-03", []),
+                question_templates_cn=self.QUESTION_TEMPLATES.get("DBR-01-03-CN", []),
             ))
         
         # Subcategory 4: Token Refresh Mechanism
         if token_evidences:
+            for evidence in token_evidences:
+                if evidence.reasoning_template:
+                    all_reasoning_templates.append(evidence.reasoning_template)
             subcategories.append(RuleSubCategory(
                 subcategory_id="DBR-01-04",
                 name="Dynamic Session State Maintenance",
@@ -643,6 +1253,8 @@ class DBR01RuleMapper:
                            "to maintain client session state consistency.",
                 description_cn="操作成功后重新生成并返回 JWT 令牌，维持客户端会话状态一致性。",
                 evidences=token_evidences,
+                question_templates=self.QUESTION_TEMPLATES.get("DBR-01-04", []),
+                question_templates_cn=self.QUESTION_TEMPLATES.get("DBR-01-04-CN", []),
             ))
         
         # Collect all related files and functions
@@ -654,6 +1266,48 @@ class DBR01RuleMapper:
                 related_files.add(evidence.location.file_path)
                 if evidence.location.qualified_name:
                     related_functions.add(evidence.location.qualified_name)
+        
+        # Create parser info
+        parser_info = ParserInfo(
+            name=PARSER_NAME,
+            version=PARSER_VERSION,
+            analysis_timestamp=self.analysis_data.get("analysis_timestamp", ""),
+            source_file=str(self.analysis_json_path),
+            capabilities=[
+                "AST parsing",
+                "Function extraction",
+                "Class extraction",
+                "Call graph analysis",
+                "FastAPI route detection",
+                "Complexity calculation",
+            ],
+        )
+        
+        # Create data cleaning info
+        data_cleaning = DataCleaningInfo(
+            cleaned=True,
+            desensitized=False,
+            cleaning_rules=[
+                "Remove internal comments",
+                "Normalize whitespace",
+                "Extract relevant code blocks only",
+            ],
+            excluded_patterns=[
+                "__pycache__",
+                "*.pyc",
+                "test_*.py",  # Test files excluded from evidence
+            ],
+        )
+        
+        # Create Q&A generation config
+        qa_config = QAGenerationConfig(
+            default_language="en",
+            supported_languages=["en", "zh"],
+            default_temperature=0.7,
+            include_code_snippets=True,
+            include_reasoning_trace=True,
+            max_snippet_lines=50,
+        )
         
         # Create the rule metadata
         rule_metadata = RuleMetadata(
@@ -670,7 +1324,7 @@ class DBR01RuleMapper:
                           "（2）账户安全性与存储原子性（密码哈希）；"
                           "（3）身份验证安全反馈（模糊错误信息）；"
                           "（4）动态会话状态维护（JWT令牌刷新）。",
-            version="1.0.0",
+            version=RULE_MAPPING_VERSION,
             created_at=datetime.now().isoformat(),
             analysis_source=str(self.analysis_json_path),
             project_name=self.analysis_data.get("project_name", "unknown"),
@@ -692,6 +1346,12 @@ class DBR01RuleMapper:
                 "uniqueness-check",
                 "password-hashing",
             ],
+            # New fields for Q&A schema compatibility
+            parser_info=parser_info,
+            data_cleaning=data_cleaning,
+            qa_config=qa_config,
+            reasoning_templates=all_reasoning_templates,
+            source_code_root=str(self.source_root) if self.source_root else "",
         )
         
         return rule_metadata
@@ -756,7 +1416,7 @@ def generate_dbr01_metadata(
 def print_rule_summary(metadata: Dict[str, Any]) -> None:
     """Print a human-readable summary of the rule metadata."""
     print("\n" + "=" * 70)
-    print(f"Rule Metadata Summary")
+    print(f"Rule Metadata Summary (Q&A Schema Compatible)")
     print("=" * 70)
     
     print(f"\nRule ID: {metadata.get('rule_id')}")
@@ -772,23 +1432,68 @@ def print_rule_summary(metadata: Dict[str, Any]) -> None:
     print(f"\n描述:")
     print(f"  {metadata.get('description_cn')}")
     
+    # Parser info
+    parser_info = metadata.get('parser_info', {})
+    if parser_info:
+        print(f"\n--- Parser Info ---")
+        print(f"  Parser: {parser_info.get('name')} v{parser_info.get('version')}")
+        print(f"  Capabilities: {', '.join(parser_info.get('capabilities', []))}")
+    
+    # Q&A Config
+    qa_config = metadata.get('qa_config', {})
+    if qa_config:
+        print(f"\n--- Q&A Generation Config ---")
+        print(f"  Languages: {', '.join(qa_config.get('supported_languages', []))}")
+        print(f"  Temperature: {qa_config.get('default_temperature')}")
+        print(f"  Include Code Snippets: {qa_config.get('include_code_snippets')}")
+        print(f"  Include Reasoning Trace: {qa_config.get('include_reasoning_trace')}")
+    
     print(f"\n--- Subcategories ({len(metadata.get('subcategories', []))}) ---")
     for i, subcat in enumerate(metadata.get('subcategories', []), 1):
         print(f"\n  {i}. {subcat.get('name')} ({subcat.get('subcategory_id')})")
         print(f"     {subcat.get('name_cn')}")
         print(f"     Evidences: {len(subcat.get('evidences', []))}")
+        print(f"     Question Templates: {len(subcat.get('question_templates', []))}")
         
         for evidence in subcat.get('evidences', []):
             print(f"       - [{evidence.get('evidence_type')}] {evidence.get('name')}")
             loc = evidence.get('location', {})
             print(f"         File: {loc.get('file_path')}:{loc.get('line_start')}-{loc.get('line_end')}")
+            
+            # Show code snippet info if available
+            code_snippet = evidence.get('code_snippet')
+            if code_snippet and code_snippet.get('source_hash'):
+                print(f"         Code Hash: {code_snippet.get('source_hash')[:8]}...")
+            
+            # Show DBR logic info if available
+            dbr_logic = evidence.get('dbr_logic')
+            if dbr_logic:
+                print(f"         DBR Logic: weight={dbr_logic.get('weight')}, "
+                      f"trigger={dbr_logic.get('trigger_type')}")
+            
+            # Show reasoning template info if available
+            reasoning = evidence.get('reasoning_template')
+            if reasoning:
+                print(f"         Reasoning Template: {reasoning.get('template_id')} "
+                      f"({len(reasoning.get('steps', []))} steps)")
     
     print(f"\n--- Related Files ({len(metadata.get('related_files', []))}) ---")
     for file_path in metadata.get('related_files', []):
         print(f"  - {file_path}")
     
+    print(f"\n--- Reasoning Templates ({len(metadata.get('reasoning_templates', []))}) ---")
+    for template in metadata.get('reasoning_templates', []):
+        print(f"  - {template.get('template_id')}: {template.get('template_name')}")
+    
     print(f"\n--- Tags ({len(metadata.get('tags', []))}) ---")
     print(f"  {', '.join(metadata.get('tags', []))}")
+    
+    # Data cleaning info
+    data_cleaning = metadata.get('data_cleaning', {})
+    if data_cleaning:
+        print(f"\n--- Data Cleaning ---")
+        print(f"  Cleaned: {data_cleaning.get('cleaned')}")
+        print(f"  Desensitized: {data_cleaning.get('desensitized')}")
     
     print("\n" + "=" * 70)
 

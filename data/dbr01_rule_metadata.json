@@ -4,8 +4,8 @@
   "rule_name_cn": "身份准入与账户凭据完整性",
   "description": "This rule ensures authentication and credential integrity through: (1) Multi-scenario uniqueness interception during sign-up and update, (2) Account security and storage atomicity with password hashing, (3) Authentication security feedback with vague error messages, (4) Dynamic session state maintenance via JWT token refresh.",
   "description_cn": "本规则通过以下机制确保身份准入与账户凭据完整性：（1）注册及更新时的多场景唯一性拦截；（2）账户安全性与存储原子性（密码哈希）；（3）身份验证安全反馈（模糊错误信息）；（4）动态会话状态维护（JWT令牌刷新）。",
-  "version": "1.0.0",
-  "created_at": "2026-01-28T06:05:54.857075",
+  "version": "2.0.0",
+  "created_at": "2026-01-28T06:51:10.088316",
   "analysis_source": "/workspace/data/fastapi_analysis_result.json",
   "project_name": "fastapi-realworld-example-app",
   "subcategories": [
@@ -28,6 +28,72 @@
             "line_start": 62,
             "line_end": 93,
             "qualified_name": "app.api.routes.authentication.register"
+          },
+          "code_snippet": {
+            "code": "async def register(\n    user_create: UserInCreate = Body(..., embed=True, alias=\"user\"),\n    users_repo: UsersRepository = Depends(get_repository(UsersRepository)),\n    settings: AppSettings = Depends(get_app_settings),\n) -> UserInResponse:\n    if await check_username_is_taken(users_repo, user_create.username):\n        raise HTTPException(\n            status_code=HTTP_400_BAD_REQUEST,\n            detail=strings.USERNAME_TAKEN,\n        )\n\n    if await check_email_is_taken(users_repo, user_create.email):\n        raise HTTPException(\n            status_code=HTTP_400_BAD_REQUEST,\n            detail=strings.EMAIL_TAKEN,\n        )\n\n    user = await users_repo.create_user(**user_create.dict())\n\n    token = jwt.create_access_token_for_user(\n        user,\n        str(settings.secret_key.get_secret_value()),\n    )\n    return UserInResponse(\n        user=UserWithToken(\n            username=user.username,\n            email=user.email,\n            bio=user.bio,\n            image=user.image,\n            token=token,\n        ),\n    )\n",
+            "language": "python",
+            "line_start": 62,
+            "line_end": 93,
+            "file_path": "app/api/routes/authentication.py",
+            "source_hash": "5b1733d32dbade12768198c92abde9be"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-01",
+            "trigger_type": "explicit",
+            "weight": 0.9,
+            "trigger_conditions": [
+              "user_create parameter present",
+              "check_username_is_taken called before create_user",
+              "check_email_is_taken called before create_user"
+            ],
+            "matched_patterns": [
+              "user_create",
+              "check_username_is_taken",
+              "check_email_is_taken",
+              "users_repo.create_user"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-REGISTER-PRECHECK",
+            "template_name": "Registration Uniqueness Check Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the uniqueness check function calls",
+                "description_cn": "识别唯一性检查的函数调用",
+                "source_reference": "check_username_is_taken, check_email_is_taken",
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze the order of validation and data persistence",
+                "description_cn": "分析验证和数据持久化的顺序",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine how pre-check prevents duplicate entries",
+                "description_cn": "判断预检查如何防止重复条目",
+                "source_reference": null,
+                "dbr_reference": "DBR-01-01"
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the data integrity guarantee mechanism",
+                "description_cn": "总结数据完整性保障机制",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-REGISTER-PRECHECK"
+            ]
           },
           "related_elements": [
             "user_create",
@@ -81,6 +147,73 @@
             "line_start": 39,
             "line_end": 73,
             "qualified_name": "app.api.routes.users.update_current_user"
+          },
+          "code_snippet": {
+            "code": "async def update_current_user(\n    user_update: UserInUpdate = Body(..., embed=True, alias=\"user\"),\n    current_user: User = Depends(get_current_user_authorizer()),\n    users_repo: UsersRepository = Depends(get_repository(UsersRepository)),\n    settings: AppSettings = Depends(get_app_settings),\n) -> UserInResponse:\n    if user_update.username and user_update.username != current_user.username:\n        if await check_username_is_taken(users_repo, user_update.username):\n            raise HTTPException(\n                status_code=HTTP_400_BAD_REQUEST,\n                detail=strings.USERNAME_TAKEN,\n            )\n\n    if user_update.email and user_update.email != current_user.email:\n        if await check_email_is_taken(users_repo, user_update.email):\n            raise HTTPException(\n                status_code=HTTP_400_BAD_REQUEST,\n                detail=strings.EMAIL_TAKEN,\n            )\n\n    user = await users_repo.update_user(user=current_user, **user_update.dict())\n\n    token = jwt.create_access_token_for_user(\n        user,\n        str(settings.secret_key.get_secret_value()),\n    )\n    return UserInResponse(\n        user=UserWithToken(\n            username=user.username,\n            email=user.email,\n            bio=user.bio,\n            image=user.image,\n            token=token,\n        ),\n    )\n",
+            "language": "python",
+            "line_start": 39,
+            "line_end": 73,
+            "file_path": "app/api/routes/users.py",
+            "source_hash": "33cf5d363ead35553c2c5a07d571583d"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-01",
+            "trigger_type": "composite",
+            "weight": 0.85,
+            "trigger_conditions": [
+              "user_update parameter present",
+              "current_user parameter present",
+              "conditional comparison before check",
+              "complexity >= 5 indicating multiple conditions"
+            ],
+            "matched_patterns": [
+              "user_update.username != current_user.username",
+              "user_update.email != current_user.email",
+              "check_username_is_taken",
+              "check_email_is_taken"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-UPDATE-CONDITIONAL",
+            "template_name": "Conditional Update Uniqueness Check Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the uniqueness check function calls",
+                "description_cn": "识别唯一性检查的函数调用",
+                "source_reference": "check_username_is_taken, check_email_is_taken",
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze the order of validation and data persistence",
+                "description_cn": "分析验证和数据持久化的顺序",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine how pre-check prevents duplicate entries",
+                "description_cn": "判断预检查如何防止重复条目",
+                "source_reference": null,
+                "dbr_reference": "DBR-01-01"
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the data integrity guarantee mechanism",
+                "description_cn": "总结数据完整性保障机制",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-UPDATE-CONDITIONAL"
+            ]
           },
           "related_elements": [
             "user_update",
@@ -138,6 +271,71 @@
             "line_end": 11,
             "qualified_name": "app.services.authentication.check_username_is_taken"
           },
+          "code_snippet": {
+            "code": "async def check_username_is_taken(repo: UsersRepository, username: str) -> bool:\n    try:\n        await repo.get_user_by_username(username=username)\n    except EntityDoesNotExist:\n        return False\n\n    return True\n",
+            "language": "python",
+            "line_start": 5,
+            "line_end": 11,
+            "file_path": "app/services/authentication.py",
+            "source_hash": "15db3687a34460dbd84312d05ec107e9"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-01",
+            "trigger_type": "explicit",
+            "weight": 0.85,
+            "trigger_conditions": [
+              "check_username_is_taken function defined",
+              "EntityDoesNotExist exception handling",
+              "Repository query for existence check"
+            ],
+            "matched_patterns": [
+              "check_username_is_taken",
+              "EntityDoesNotExist",
+              "repo.get_user_by_username"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-SERVICE-CHECK-USERNAME-IS-TAKEN",
+            "template_name": "Uniqueness Service check_username_is_taken Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the relevant code pattern",
+                "description_cn": "识别相关的代码模式",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze the implementation details",
+                "description_cn": "分析实现细节",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine the design intent and security implications",
+                "description_cn": "判断设计意图和安全影响",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the business rule compliance",
+                "description_cn": "总结业务规则的合规性",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-SERVICE-CHECK-USERNAME-IS-TAKEN"
+            ]
+          },
           "related_elements": [
             "check_username_is_taken",
             "EntityDoesNotExist",
@@ -163,6 +361,71 @@
             "line_end": 20,
             "qualified_name": "app.services.authentication.check_email_is_taken"
           },
+          "code_snippet": {
+            "code": "async def check_email_is_taken(repo: UsersRepository, email: str) -> bool:\n    try:\n        await repo.get_user_by_email(email=email)\n    except EntityDoesNotExist:\n        return False\n\n    return True\n",
+            "language": "python",
+            "line_start": 14,
+            "line_end": 20,
+            "file_path": "app/services/authentication.py",
+            "source_hash": "8758a824dbbe73d787e91380bd15351a"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-01",
+            "trigger_type": "explicit",
+            "weight": 0.85,
+            "trigger_conditions": [
+              "check_email_is_taken function defined",
+              "EntityDoesNotExist exception handling",
+              "Repository query for existence check"
+            ],
+            "matched_patterns": [
+              "check_email_is_taken",
+              "EntityDoesNotExist",
+              "repo.get_user_by_email"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-SERVICE-CHECK-EMAIL-IS-TAKEN",
+            "template_name": "Uniqueness Service check_email_is_taken Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the relevant code pattern",
+                "description_cn": "识别相关的代码模式",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze the implementation details",
+                "description_cn": "分析实现细节",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine the design intent and security implications",
+                "description_cn": "判断设计意图和安全影响",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the business rule compliance",
+                "description_cn": "总结业务规则的合规性",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-SERVICE-CHECK-EMAIL-IS-TAKEN"
+            ]
+          },
           "related_elements": [
             "check_email_is_taken",
             "EntityDoesNotExist",
@@ -175,6 +438,16 @@
             "return_type": "bool"
           }
         }
+      ],
+      "question_templates": [
+        "How does the system handle username/email uniqueness during registration?",
+        "What happens when a user tries to register with an existing email?",
+        "Explain the conditional update validation logic for user profile updates."
+      ],
+      "question_templates_cn": [
+        "系统如何在注册时处理用户名/邮箱的唯一性检查？",
+        "当用户使用已存在的邮箱注册时会发生什么？",
+        "解释用户资料更新时的条件验证逻辑。"
       ]
     },
     {
@@ -196,6 +469,72 @@
             "line_start": 29,
             "line_end": 48,
             "qualified_name": "app.db.repositories.users.UsersRepository.create_user"
+          },
+          "code_snippet": {
+            "code": "    async def create_user(\n        self,\n        *,\n        username: str,\n        email: str,\n        password: str,\n    ) -> UserInDB:\n        user = UserInDB(username=username, email=email)\n        user.change_password(password)\n\n        async with self.connection.transaction():\n            user_row = await queries.create_new_user(\n                self.connection,\n                username=user.username,\n                email=user.email,\n                salt=user.salt,\n                hashed_password=user.hashed_password,\n            )\n\n        return user.copy(update=dict(user_row))\n",
+            "language": "python",
+            "line_start": 29,
+            "line_end": 48,
+            "file_path": "app/db/repositories/users.py",
+            "source_hash": "487b7f050fae57823068a4a9c8cd01e8"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-02",
+            "trigger_type": "explicit",
+            "weight": 0.9,
+            "trigger_conditions": [
+              "transaction context manager used",
+              "change_password called for hashing",
+              "atomic database operation"
+            ],
+            "matched_patterns": [
+              "self.connection.transaction",
+              "user.change_password",
+              "hashed_password",
+              "salt"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-REPO-ATOMICITY",
+            "template_name": "Repository Atomicity Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the relevant code pattern",
+                "description_cn": "识别相关的代码模式",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze the implementation details",
+                "description_cn": "分析实现细节",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine the design intent and security implications",
+                "description_cn": "判断设计意图和安全影响",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the business rule compliance",
+                "description_cn": "总结业务规则的合规性",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-REPO-ATOMICITY"
+            ]
           },
           "related_elements": [
             "UsersRepository",
@@ -219,6 +558,14 @@
             ]
           }
         }
+      ],
+      "question_templates": [
+        "How does the system ensure atomicity during user account creation?",
+        "Describe the password hashing mechanism in user registration."
+      ],
+      "question_templates_cn": [
+        "系统如何确保用户账户创建时的原子性？",
+        "描述用户注册时的密码哈希机制。"
       ]
     },
     {
@@ -240,6 +587,71 @@
             "line_start": 23,
             "line_end": 53,
             "qualified_name": "app.api.routes.authentication.login"
+          },
+          "code_snippet": {
+            "code": "async def login(\n    user_login: UserInLogin = Body(..., embed=True, alias=\"user\"),\n    users_repo: UsersRepository = Depends(get_repository(UsersRepository)),\n    settings: AppSettings = Depends(get_app_settings),\n) -> UserInResponse:\n    wrong_login_error = HTTPException(\n        status_code=HTTP_400_BAD_REQUEST,\n        detail=strings.INCORRECT_LOGIN_INPUT,\n    )\n\n    try:\n        user = await users_repo.get_user_by_email(email=user_login.email)\n    except EntityDoesNotExist as existence_error:\n        raise wrong_login_error from existence_error\n\n    if not user.check_password(user_login.password):\n        raise wrong_login_error\n\n    token = jwt.create_access_token_for_user(\n        user,\n        str(settings.secret_key.get_secret_value()),\n    )\n    return UserInResponse(\n        user=UserWithToken(\n            username=user.username,\n            email=user.email,\n            bio=user.bio,\n            image=user.image,\n            token=token,\n        ),\n    )\n",
+            "language": "python",
+            "line_start": 23,
+            "line_end": 53,
+            "file_path": "app/api/routes/authentication.py",
+            "source_hash": "3ce474b28dcaa695a5fc3b0f4a6a0bb1"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-03",
+            "trigger_type": "explicit",
+            "weight": 0.95,
+            "trigger_conditions": [
+              "try-except block present",
+              "wrong_login_error variable defined",
+              "EntityDoesNotExist exception caught"
+            ],
+            "matched_patterns": [
+              "wrong_login_error",
+              "existence_error",
+              "user.check_password"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-LOGIN-EXCEPTION",
+            "template_name": "Login Exception Handling Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the exception handling structure in the function",
+                "description_cn": "识别函数中的异常处理结构",
+                "source_reference": "try-except block",
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze the predefined error variable and its usage",
+                "description_cn": "分析预定义的错误变量及其使用方式",
+                "source_reference": "wrong_login_error, existence_error",
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine how the unified error response prevents information leakage",
+                "description_cn": "判断统一的错误响应如何防止信息泄露",
+                "source_reference": null,
+                "dbr_reference": "DBR-01-03"
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the security benefit of vague error messages",
+                "description_cn": "总结模糊错误信息的安全收益",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-LOGIN-EXCEPTION"
+            ]
           },
           "related_elements": [
             "wrong_login_error",
@@ -275,6 +687,14 @@
             "has_get_user_by_email": true
           }
         }
+      ],
+      "question_templates": [
+        "How does the login function prevent user enumeration attacks?",
+        "What error message is returned for failed login attempts and why?"
+      ],
+      "question_templates_cn": [
+        "登录函数如何防止用户枚举攻击？",
+        "登录失败时返回什么错误信息？为什么？"
       ]
     },
     {
@@ -296,6 +716,71 @@
             "line_start": 23,
             "line_end": 53,
             "qualified_name": "app.api.routes.authentication.login"
+          },
+          "code_snippet": {
+            "code": "async def login(\n    user_login: UserInLogin = Body(..., embed=True, alias=\"user\"),\n    users_repo: UsersRepository = Depends(get_repository(UsersRepository)),\n    settings: AppSettings = Depends(get_app_settings),\n) -> UserInResponse:\n    wrong_login_error = HTTPException(\n        status_code=HTTP_400_BAD_REQUEST,\n        detail=strings.INCORRECT_LOGIN_INPUT,\n    )\n\n    try:\n        user = await users_repo.get_user_by_email(email=user_login.email)\n    except EntityDoesNotExist as existence_error:\n        raise wrong_login_error from existence_error\n\n    if not user.check_password(user_login.password):\n        raise wrong_login_error\n\n    token = jwt.create_access_token_for_user(\n        user,\n        str(settings.secret_key.get_secret_value()),\n    )\n    return UserInResponse(\n        user=UserWithToken(\n            username=user.username,\n            email=user.email,\n            bio=user.bio,\n            image=user.image,\n            token=token,\n        ),\n    )\n",
+            "language": "python",
+            "line_start": 23,
+            "line_end": 53,
+            "file_path": "app/api/routes/authentication.py",
+            "source_hash": "3ce474b28dcaa695a5fc3b0f4a6a0bb1"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-04",
+            "trigger_type": "explicit",
+            "weight": 0.8,
+            "trigger_conditions": [
+              "jwt.create_access_token_for_user called",
+              "token variable assigned",
+              "UserWithToken used in response"
+            ],
+            "matched_patterns": [
+              "jwt.create_access_token_for_user",
+              "token",
+              "UserWithToken"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-TOKEN-LOGIN",
+            "template_name": "Token Refresh in login Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the JWT token generation call",
+                "description_cn": "识别JWT令牌生成调用",
+                "source_reference": "jwt.create_access_token_for_user",
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze when token refresh occurs in the flow",
+                "description_cn": "分析令牌刷新在流程中何时发生",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine how token refresh maintains session consistency",
+                "description_cn": "判断令牌刷新如何维持会话一致性",
+                "source_reference": null,
+                "dbr_reference": "DBR-01-04"
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the session state management strategy",
+                "description_cn": "总结会话状态管理策略",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-TOKEN-LOGIN"
+            ]
           },
           "related_elements": [
             "jwt.create_access_token_for_user",
@@ -337,6 +822,71 @@
             "line_start": 62,
             "line_end": 93,
             "qualified_name": "app.api.routes.authentication.register"
+          },
+          "code_snippet": {
+            "code": "async def register(\n    user_create: UserInCreate = Body(..., embed=True, alias=\"user\"),\n    users_repo: UsersRepository = Depends(get_repository(UsersRepository)),\n    settings: AppSettings = Depends(get_app_settings),\n) -> UserInResponse:\n    if await check_username_is_taken(users_repo, user_create.username):\n        raise HTTPException(\n            status_code=HTTP_400_BAD_REQUEST,\n            detail=strings.USERNAME_TAKEN,\n        )\n\n    if await check_email_is_taken(users_repo, user_create.email):\n        raise HTTPException(\n            status_code=HTTP_400_BAD_REQUEST,\n            detail=strings.EMAIL_TAKEN,\n        )\n\n    user = await users_repo.create_user(**user_create.dict())\n\n    token = jwt.create_access_token_for_user(\n        user,\n        str(settings.secret_key.get_secret_value()),\n    )\n    return UserInResponse(\n        user=UserWithToken(\n            username=user.username,\n            email=user.email,\n            bio=user.bio,\n            image=user.image,\n            token=token,\n        ),\n    )\n",
+            "language": "python",
+            "line_start": 62,
+            "line_end": 93,
+            "file_path": "app/api/routes/authentication.py",
+            "source_hash": "5b1733d32dbade12768198c92abde9be"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-04",
+            "trigger_type": "explicit",
+            "weight": 0.8,
+            "trigger_conditions": [
+              "jwt.create_access_token_for_user called",
+              "token variable assigned",
+              "UserWithToken used in response"
+            ],
+            "matched_patterns": [
+              "jwt.create_access_token_for_user",
+              "token",
+              "UserWithToken"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-TOKEN-REGISTER",
+            "template_name": "Token Refresh in register Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the JWT token generation call",
+                "description_cn": "识别JWT令牌生成调用",
+                "source_reference": "jwt.create_access_token_for_user",
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze when token refresh occurs in the flow",
+                "description_cn": "分析令牌刷新在流程中何时发生",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine how token refresh maintains session consistency",
+                "description_cn": "判断令牌刷新如何维持会话一致性",
+                "source_reference": null,
+                "dbr_reference": "DBR-01-04"
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the session state management strategy",
+                "description_cn": "总结会话状态管理策略",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-TOKEN-REGISTER"
+            ]
           },
           "related_elements": [
             "jwt.create_access_token_for_user",
@@ -382,6 +932,71 @@
             "line_end": 35,
             "qualified_name": "app.api.routes.users.retrieve_current_user"
           },
+          "code_snippet": {
+            "code": "async def retrieve_current_user(\n    user: User = Depends(get_current_user_authorizer()),\n    settings: AppSettings = Depends(get_app_settings),\n) -> UserInResponse:\n    token = jwt.create_access_token_for_user(\n        user,\n        str(settings.secret_key.get_secret_value()),\n    )\n    return UserInResponse(\n        user=UserWithToken(\n            username=user.username,\n            email=user.email,\n            bio=user.bio,\n            image=user.image,\n            token=token,\n        ),\n    )\n",
+            "language": "python",
+            "line_start": 19,
+            "line_end": 35,
+            "file_path": "app/api/routes/users.py",
+            "source_hash": "39c288412b8b605076a9c0f4819ab8b8"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-04",
+            "trigger_type": "explicit",
+            "weight": 0.8,
+            "trigger_conditions": [
+              "jwt.create_access_token_for_user called",
+              "token variable assigned",
+              "UserWithToken used in response"
+            ],
+            "matched_patterns": [
+              "jwt.create_access_token_for_user",
+              "token",
+              "UserWithToken"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-TOKEN-RETRIEVE_CURRENT_USER",
+            "template_name": "Token Refresh in retrieve_current_user Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the JWT token generation call",
+                "description_cn": "识别JWT令牌生成调用",
+                "source_reference": "jwt.create_access_token_for_user",
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze when token refresh occurs in the flow",
+                "description_cn": "分析令牌刷新在流程中何时发生",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine how token refresh maintains session consistency",
+                "description_cn": "判断令牌刷新如何维持会话一致性",
+                "source_reference": null,
+                "dbr_reference": "DBR-01-04"
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the session state management strategy",
+                "description_cn": "总结会话状态管理策略",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-TOKEN-RETRIEVE_CURRENT_USER"
+            ]
+          },
           "related_elements": [
             "jwt.create_access_token_for_user",
             "token",
@@ -419,6 +1034,71 @@
             "line_end": 73,
             "qualified_name": "app.api.routes.users.update_current_user"
           },
+          "code_snippet": {
+            "code": "async def update_current_user(\n    user_update: UserInUpdate = Body(..., embed=True, alias=\"user\"),\n    current_user: User = Depends(get_current_user_authorizer()),\n    users_repo: UsersRepository = Depends(get_repository(UsersRepository)),\n    settings: AppSettings = Depends(get_app_settings),\n) -> UserInResponse:\n    if user_update.username and user_update.username != current_user.username:\n        if await check_username_is_taken(users_repo, user_update.username):\n            raise HTTPException(\n                status_code=HTTP_400_BAD_REQUEST,\n                detail=strings.USERNAME_TAKEN,\n            )\n\n    if user_update.email and user_update.email != current_user.email:\n        if await check_email_is_taken(users_repo, user_update.email):\n            raise HTTPException(\n                status_code=HTTP_400_BAD_REQUEST,\n                detail=strings.EMAIL_TAKEN,\n            )\n\n    user = await users_repo.update_user(user=current_user, **user_update.dict())\n\n    token = jwt.create_access_token_for_user(\n        user,\n        str(settings.secret_key.get_secret_value()),\n    )\n    return UserInResponse(\n        user=UserWithToken(\n            username=user.username,\n            email=user.email,\n            bio=user.bio,\n            image=user.image,\n            token=token,\n        ),\n    )\n",
+            "language": "python",
+            "line_start": 39,
+            "line_end": 73,
+            "file_path": "app/api/routes/users.py",
+            "source_hash": "33cf5d363ead35553c2c5a07d571583d"
+          },
+          "dbr_logic": {
+            "rule_id": "DBR-01",
+            "subcategory_id": "DBR-01-04",
+            "trigger_type": "explicit",
+            "weight": 0.8,
+            "trigger_conditions": [
+              "jwt.create_access_token_for_user called",
+              "token variable assigned",
+              "UserWithToken used in response"
+            ],
+            "matched_patterns": [
+              "jwt.create_access_token_for_user",
+              "token",
+              "UserWithToken"
+            ]
+          },
+          "reasoning_template": {
+            "template_id": "RT-TOKEN-UPDATE_CURRENT_USER",
+            "template_name": "Token Refresh in update_current_user Reasoning",
+            "steps": [
+              {
+                "step_id": 1,
+                "step_type": "observation",
+                "description": "Identify the JWT token generation call",
+                "description_cn": "识别JWT令牌生成调用",
+                "source_reference": "jwt.create_access_token_for_user",
+                "dbr_reference": null
+              },
+              {
+                "step_id": 2,
+                "step_type": "analysis",
+                "description": "Analyze when token refresh occurs in the flow",
+                "description_cn": "分析令牌刷新在流程中何时发生",
+                "source_reference": null,
+                "dbr_reference": null
+              },
+              {
+                "step_id": 3,
+                "step_type": "inference",
+                "description": "Determine how token refresh maintains session consistency",
+                "description_cn": "判断令牌刷新如何维持会话一致性",
+                "source_reference": null,
+                "dbr_reference": "DBR-01-04"
+              },
+              {
+                "step_id": 4,
+                "step_type": "conclusion",
+                "description": "Conclude the session state management strategy",
+                "description_cn": "总结会话状态管理策略",
+                "source_reference": null,
+                "dbr_reference": null
+              }
+            ],
+            "applicable_to": [
+              "DBR-01-TOKEN-UPDATE_CURRENT_USER"
+            ]
+          },
           "related_elements": [
             "jwt.create_access_token_for_user",
             "token",
@@ -452,6 +1132,14 @@
             ]
           }
         }
+      ],
+      "question_templates": [
+        "When and how is the JWT token refreshed in the system?",
+        "Which API endpoints return a new JWT token to the client?"
+      ],
+      "question_templates_cn": [
+        "系统何时以及如何刷新JWT令牌？",
+        "哪些API端点会向客户端返回新的JWT令牌？"
       ]
     }
   ],
@@ -484,5 +1172,457 @@
     "user-management",
     "uniqueness-check",
     "password-hashing"
-  ]
+  ],
+  "parser_info": {
+    "name": "FastAPI-AST-Analyzer",
+    "version": "1.0.0",
+    "analysis_timestamp": "2026-01-28T06:03:39.935028",
+    "source_file": "/workspace/data/fastapi_analysis_result.json",
+    "capabilities": [
+      "AST parsing",
+      "Function extraction",
+      "Class extraction",
+      "Call graph analysis",
+      "FastAPI route detection",
+      "Complexity calculation"
+    ]
+  },
+  "data_cleaning": {
+    "cleaned": true,
+    "desensitized": false,
+    "cleaning_rules": [
+      "Remove internal comments",
+      "Normalize whitespace",
+      "Extract relevant code blocks only"
+    ],
+    "excluded_patterns": [
+      "__pycache__",
+      "*.pyc",
+      "test_*.py"
+    ]
+  },
+  "qa_config": {
+    "default_language": "en",
+    "supported_languages": [
+      "en",
+      "zh"
+    ],
+    "default_temperature": 0.7,
+    "include_code_snippets": true,
+    "include_reasoning_trace": true,
+    "max_snippet_lines": 50
+  },
+  "reasoning_templates": [
+    {
+      "template_id": "RT-REGISTER-PRECHECK",
+      "template_name": "Registration Uniqueness Check Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the uniqueness check function calls",
+          "description_cn": "识别唯一性检查的函数调用",
+          "source_reference": "check_username_is_taken, check_email_is_taken",
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze the order of validation and data persistence",
+          "description_cn": "分析验证和数据持久化的顺序",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine how pre-check prevents duplicate entries",
+          "description_cn": "判断预检查如何防止重复条目",
+          "source_reference": null,
+          "dbr_reference": "DBR-01-01"
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the data integrity guarantee mechanism",
+          "description_cn": "总结数据完整性保障机制",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-REGISTER-PRECHECK"
+      ]
+    },
+    {
+      "template_id": "RT-UPDATE-CONDITIONAL",
+      "template_name": "Conditional Update Uniqueness Check Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the uniqueness check function calls",
+          "description_cn": "识别唯一性检查的函数调用",
+          "source_reference": "check_username_is_taken, check_email_is_taken",
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze the order of validation and data persistence",
+          "description_cn": "分析验证和数据持久化的顺序",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine how pre-check prevents duplicate entries",
+          "description_cn": "判断预检查如何防止重复条目",
+          "source_reference": null,
+          "dbr_reference": "DBR-01-01"
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the data integrity guarantee mechanism",
+          "description_cn": "总结数据完整性保障机制",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-UPDATE-CONDITIONAL"
+      ]
+    },
+    {
+      "template_id": "RT-SERVICE-CHECK-USERNAME-IS-TAKEN",
+      "template_name": "Uniqueness Service check_username_is_taken Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the relevant code pattern",
+          "description_cn": "识别相关的代码模式",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze the implementation details",
+          "description_cn": "分析实现细节",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine the design intent and security implications",
+          "description_cn": "判断设计意图和安全影响",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the business rule compliance",
+          "description_cn": "总结业务规则的合规性",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-SERVICE-CHECK-USERNAME-IS-TAKEN"
+      ]
+    },
+    {
+      "template_id": "RT-SERVICE-CHECK-EMAIL-IS-TAKEN",
+      "template_name": "Uniqueness Service check_email_is_taken Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the relevant code pattern",
+          "description_cn": "识别相关的代码模式",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze the implementation details",
+          "description_cn": "分析实现细节",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine the design intent and security implications",
+          "description_cn": "判断设计意图和安全影响",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the business rule compliance",
+          "description_cn": "总结业务规则的合规性",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-SERVICE-CHECK-EMAIL-IS-TAKEN"
+      ]
+    },
+    {
+      "template_id": "RT-REPO-ATOMICITY",
+      "template_name": "Repository Atomicity Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the relevant code pattern",
+          "description_cn": "识别相关的代码模式",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze the implementation details",
+          "description_cn": "分析实现细节",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine the design intent and security implications",
+          "description_cn": "判断设计意图和安全影响",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the business rule compliance",
+          "description_cn": "总结业务规则的合规性",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-REPO-ATOMICITY"
+      ]
+    },
+    {
+      "template_id": "RT-LOGIN-EXCEPTION",
+      "template_name": "Login Exception Handling Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the exception handling structure in the function",
+          "description_cn": "识别函数中的异常处理结构",
+          "source_reference": "try-except block",
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze the predefined error variable and its usage",
+          "description_cn": "分析预定义的错误变量及其使用方式",
+          "source_reference": "wrong_login_error, existence_error",
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine how the unified error response prevents information leakage",
+          "description_cn": "判断统一的错误响应如何防止信息泄露",
+          "source_reference": null,
+          "dbr_reference": "DBR-01-03"
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the security benefit of vague error messages",
+          "description_cn": "总结模糊错误信息的安全收益",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-LOGIN-EXCEPTION"
+      ]
+    },
+    {
+      "template_id": "RT-TOKEN-LOGIN",
+      "template_name": "Token Refresh in login Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the JWT token generation call",
+          "description_cn": "识别JWT令牌生成调用",
+          "source_reference": "jwt.create_access_token_for_user",
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze when token refresh occurs in the flow",
+          "description_cn": "分析令牌刷新在流程中何时发生",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine how token refresh maintains session consistency",
+          "description_cn": "判断令牌刷新如何维持会话一致性",
+          "source_reference": null,
+          "dbr_reference": "DBR-01-04"
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the session state management strategy",
+          "description_cn": "总结会话状态管理策略",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-TOKEN-LOGIN"
+      ]
+    },
+    {
+      "template_id": "RT-TOKEN-REGISTER",
+      "template_name": "Token Refresh in register Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the JWT token generation call",
+          "description_cn": "识别JWT令牌生成调用",
+          "source_reference": "jwt.create_access_token_for_user",
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze when token refresh occurs in the flow",
+          "description_cn": "分析令牌刷新在流程中何时发生",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine how token refresh maintains session consistency",
+          "description_cn": "判断令牌刷新如何维持会话一致性",
+          "source_reference": null,
+          "dbr_reference": "DBR-01-04"
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the session state management strategy",
+          "description_cn": "总结会话状态管理策略",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-TOKEN-REGISTER"
+      ]
+    },
+    {
+      "template_id": "RT-TOKEN-RETRIEVE_CURRENT_USER",
+      "template_name": "Token Refresh in retrieve_current_user Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the JWT token generation call",
+          "description_cn": "识别JWT令牌生成调用",
+          "source_reference": "jwt.create_access_token_for_user",
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze when token refresh occurs in the flow",
+          "description_cn": "分析令牌刷新在流程中何时发生",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine how token refresh maintains session consistency",
+          "description_cn": "判断令牌刷新如何维持会话一致性",
+          "source_reference": null,
+          "dbr_reference": "DBR-01-04"
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the session state management strategy",
+          "description_cn": "总结会话状态管理策略",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-TOKEN-RETRIEVE_CURRENT_USER"
+      ]
+    },
+    {
+      "template_id": "RT-TOKEN-UPDATE_CURRENT_USER",
+      "template_name": "Token Refresh in update_current_user Reasoning",
+      "steps": [
+        {
+          "step_id": 1,
+          "step_type": "observation",
+          "description": "Identify the JWT token generation call",
+          "description_cn": "识别JWT令牌生成调用",
+          "source_reference": "jwt.create_access_token_for_user",
+          "dbr_reference": null
+        },
+        {
+          "step_id": 2,
+          "step_type": "analysis",
+          "description": "Analyze when token refresh occurs in the flow",
+          "description_cn": "分析令牌刷新在流程中何时发生",
+          "source_reference": null,
+          "dbr_reference": null
+        },
+        {
+          "step_id": 3,
+          "step_type": "inference",
+          "description": "Determine how token refresh maintains session consistency",
+          "description_cn": "判断令牌刷新如何维持会话一致性",
+          "source_reference": null,
+          "dbr_reference": "DBR-01-04"
+        },
+        {
+          "step_id": 4,
+          "step_type": "conclusion",
+          "description": "Conclude the session state management strategy",
+          "description_cn": "总结会话状态管理策略",
+          "source_reference": null,
+          "dbr_reference": null
+        }
+      ],
+      "applicable_to": [
+        "DBR-01-TOKEN-UPDATE_CURRENT_USER"
+      ]
+    }
+  ],
+  "source_code_root": "/workspace/repos/fastapi-realworld-example-app"
 }
