@@ -82,7 +82,7 @@ The generation engine is designed as a standalone execution pipeline. You can ge
 Analyzes existing source code to generate compliance-based reasoning and "Gold Standard" code snippets.
 ```bash
 # Targets source files defined in the script (e.g., authentication.py, users.py)
-python src/generate/rules-based-gen-logic-v3.py
+python src/generate/v9/main_v2.py
 ```
 2. Scenario 2: Rule-Driven Architectural Design
 Generates comprehensive design schemes and logical inference traces based on predefined DBRs and repository architecture.
