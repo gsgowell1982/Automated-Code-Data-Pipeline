@@ -88,7 +88,7 @@ python src/generate/v9/main_v2.py
 Generates comprehensive design schemes and logical inference traces based on predefined DBRs and repository architecture.
 ```bash
 # Focuses on architectural consistency and design justification
-python src/generate/design-gen.py
+python src/generate/design/main_v2.py
 ```
 
 
